@@ -27,15 +27,8 @@ func main() {
 	log.Printf("Configuration loaded successfully")
 	log.Printf("Server will listen on port: %s", cfg.Port)
 
-	// Determine database type
-	dbType := cfg.DBType
-	if dbType == "" {
-		if cfg.DBPath != "" || (cfg.DBUser == "" && cfg.DBPassword == "") {
-			dbType = "sqlite3"
-		} else {
-			dbType = "mysql"
-		}
-	}
+	// Get database type
+	dbType := cfg.GetDBType()
 
 	if dbType == "sqlite3" {
 		log.Printf("Database: SQLite (%s)", cfg.DBPath)
@@ -58,28 +51,32 @@ func main() {
 	log.Println("Database connection established")
 
 	// Run migrations
-	var migrationsPath string
+	var migrationPattern string
 	if dbType == "sqlite3" {
-		migrationsPath = filepath.Join("db", "migrations", "*_sqlite.sql")
+		migrationPattern = filepath.Join("db", "migrations", "*_sqlite.sql")
 	} else {
-		migrationsPath = filepath.Join("db", "migrations", "001_init.sql")
+		migrationPattern = filepath.Join("db", "migrations", "001_init.sql")
 	}
 
 	// Find and run migration files
-	migrationFiles, err := filepath.Glob(migrationsPath)
-	if err != nil || len(migrationFiles) == 0 {
-		log.Fatalf("No migration files found at %s", migrationsPath)
+	migrationFiles, err := filepath.Glob(migrationPattern)
+	if err != nil {
+		log.Fatalf("Failed to find migration files: %v", err)
+	}
+	if len(migrationFiles) == 0 {
+		log.Fatalf("No migration files found matching pattern: %s", migrationPattern)
 	}
 
 	for _, migFile := range migrationFiles {
+		log.Printf("Running migration: %s", filepath.Base(migFile))
 		content, err := os.ReadFile(migFile)
 		if err != nil {
 			log.Fatalf("Failed to read migration file %s: %v", migFile, err)
 		}
 		if _, err := database.Exec(string(content)); err != nil {
-			log.Fatalf("Failed to execute migration %s: %v", migFile, err)
+			log.Fatalf("Failed to execute migration %s: %v", filepath.Base(migFile), err)
 		}
-		log.Printf("Applied migration: %s", filepath.Base(migFile))
+		log.Printf("✓ Applied migration: %s", filepath.Base(migFile))
 	}
 
 	// Initialize S3 client

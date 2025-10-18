@@ -138,15 +138,7 @@ func (c *Config) Validate() error {
 
 // DSN returns the database connection string
 func (c *Config) DSN() string {
-	// Auto-detect if DBType not set
-	dbType := c.DBType
-	if dbType == "" {
-		if c.DBPath != "" || (c.DBUser == "" && c.DBPassword == "") {
-			dbType = "sqlite3"
-		} else {
-			dbType = "mysql"
-		}
-	}
+	dbType := c.GetDBType()
 
 	if dbType == "sqlite3" {
 		return c.DBPath
@@ -160,6 +152,21 @@ func (c *Config) DSN() string {
 		c.DBPort,
 		c.DBName,
 	)
+}
+
+// GetDBType returns the database type (auto-detects if not explicitly set)
+func (c *Config) GetDBType() string {
+	// Use explicit type if set
+	if c.DBType != "" {
+		return c.DBType
+	}
+
+	// Auto-detect based on config
+	if c.DBUser != "" || c.DBPassword != "" {
+		return "mysql"
+	}
+
+	return "sqlite3" // Default to SQLite
 }
 
 // getEnv retrieves an environment variable or returns a default value

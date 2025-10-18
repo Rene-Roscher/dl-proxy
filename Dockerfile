@@ -1,8 +1,8 @@
 # Build stage
 FROM golang:1.23-alpine AS builder
 
-# Install build dependencies
-RUN apk add --no-cache git
+# Install build dependencies (gcc, musl-dev needed for SQLite)
+RUN apk add --no-cache git gcc musl-dev
 
 # Set working directory
 WORKDIR /app
@@ -16,14 +16,14 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o download-proxy .
+# Build binary with CGO enabled (required for SQLite)
+RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static"' -o download-proxy .
 
 # Runtime stage
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS requests and wget for healthcheck
+RUN apk --no-cache add ca-certificates wget
 
 # Create non-root user
 RUN addgroup -g 1000 appuser && \
