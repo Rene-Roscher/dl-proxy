@@ -1,0 +1,41 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "1330:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      # Server
+      PORT: 8080
+
+      # Database (SQLite - default)
+      DB_PATH: /app/data/proxy.db
+
+      # AWS / Cloudflare R2
+      AWS_REGION: ${AWS_REGION:-auto}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_PREFIX: ${S3_PREFIX:-proxy}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+
+      # Smart Caching
+      CACHE_THRESHOLD: ${CACHE_THRESHOLD:-10}
+      CACHE_WINDOW: ${CACHE_WINDOW:-1h}
+      CACHE_RETENTION_DAYS: ${CACHE_RETENTION_DAYS:-30}
+
+      # Presigned URLs
+      PRESIGNED_URL_EXPIRY: ${PRESIGNED_URL_EXPIRY:-1h}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  data:

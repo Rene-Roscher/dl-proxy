@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:11
+    container_name: dl-proxy-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-proxy_db}
+      MYSQL_USER: ${DB_USER:-proxy_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-proxy_password}
+    volumes:
+      - db_data:/var/lib/mysql
+    # Kein Port-Mapping - nur intern im Docker-Netzwerk erreichbar
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - proxy_network
+
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dl-proxy-app
+    restart: unless-stopped
+    ports:
+      - "1330:8080"
+    environment:
+      # HTTP Server
+      PORT: 8080
+
+      # Database
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-proxy_user}
+      DB_PASSWORD: ${DB_PASSWORD:-proxy_password}
+      DB_NAME: ${DB_NAME:-proxy_db}
+
+      # AWS S3 / Cloudflare R2
+      AWS_REGION: ${AWS_REGION:-auto}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_PREFIX: ${S3_PREFIX:-proxy}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+
+      # Presigned URL expiry
+      PRESIGNED_URL_EXPIRY: ${PRESIGNED_URL_EXPIRY:-1h}
+
+      # Smart Caching
+      CACHE_THRESHOLD: ${CACHE_THRESHOLD:-10}
+      CACHE_WINDOW: ${CACHE_WINDOW:-1h}
+      CACHE_RETENTION_DAYS: ${CACHE_RETENTION_DAYS:-30}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - proxy_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: dl-proxy-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "1331:80"
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: ${DB_USER:-proxy_user}
+      PMA_PASSWORD: ${DB_PASSWORD:-proxy_password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      PMA_ARBITRARY: 0
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - proxy_network
+
+volumes:
+  db_data:
+    driver: local
+
+networks:
+  proxy_network:
+    driver: bridge
