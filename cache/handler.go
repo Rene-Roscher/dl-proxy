@@ -236,17 +236,10 @@ func (h *Handler) downloadAndCache(w http.ResponseWriter, r *http.Request, file 
 	// Create a pipe for streaming to S3
 	pipeReader, pipeWriter := io.Pipe()
 
-	// Buffer for counting bytes
-	var bytesServed int64
-	counterWriter := &countingWriter{count: &bytesServed}
-
-	// Create multi-writer: client response + S3 upload pipe
-	multiWriter := io.MultiWriter(pipeWriter, counterWriter)
-
 	// Upload to S3 in background goroutine
 	uploadErrChan := make(chan error, 1)
 	go func() {
-		defer pipeWriter.Close()
+		defer pipeReader.Close()
 		s3Path, err := h.s3.Upload(pipeReader, file.CacheKey, file.FileName, contentType)
 		if err != nil {
 			log.Printf("Failed to upload to S3: %v", err)
@@ -257,7 +250,7 @@ func (h *Handler) downloadAndCache(w http.ResponseWriter, r *http.Request, file 
 		uploadErrChan <- nil
 	}()
 
-	// Set response headers
+	// Set response headers BEFORE streaming
 	w.Header().Set("Content-Type", contentType)
 	if downloadInfo.ContentLength > 0 {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", downloadInfo.ContentLength))
@@ -265,8 +258,11 @@ func (h *Handler) downloadAndCache(w http.ResponseWriter, r *http.Request, file 
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file.FileName))
 	w.Header().Set("X-Cache-Status", "MISS-CACHING")
 
+	// Create multi-writer: stream to BOTH client AND S3 simultaneously
+	multiWriter := io.MultiWriter(w, pipeWriter)
+
 	// Stream to client and S3 simultaneously
-	_, copyErr := io.Copy(multiWriter, downloadInfo.Reader)
+	bytesServed, copyErr := io.Copy(multiWriter, downloadInfo.Reader)
 	pipeWriter.Close() // Signal completion to S3 uploader
 
 	// Wait for S3 upload to complete
