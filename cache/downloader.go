@@ -15,9 +15,12 @@ type Downloader struct {
 func NewDownloader() *Downloader {
 	return &Downloader{
 		client: &http.Client{
-			// Don't follow redirects automatically, let caller decide
+			// Follow up to 10 redirects
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
+				}
+				return nil
 			},
 		},
 	}
@@ -39,8 +42,10 @@ func (d *Downloader) Download(url string) (*DownloadInfo, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set user agent
-	req.Header.Set("User-Agent", "DownloadProxy/1.0")
+	// Set realistic browser user agent to avoid blocking
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	// Execute request
 	resp, err := d.client.Do(req)
