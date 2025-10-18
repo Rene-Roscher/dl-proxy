@@ -13,6 +13,7 @@ import (
 	"download-proxy/cache"
 	"download-proxy/config"
 	"download-proxy/db"
+	"download-proxy/security"
 )
 
 func main() {
@@ -94,16 +95,31 @@ func main() {
 
 	log.Println("S3 client initialized")
 
+	// Initialize security validator
+	validator, err := security.NewValidator(cfg.AllowedIPNets)
+	if err != nil {
+		log.Fatalf("Failed to initialize security validator: %v", err)
+	}
+
+	if len(cfg.AllowedIPNets) > 0 {
+		log.Printf("IP subnet filtering enabled: %v", cfg.AllowedIPNets)
+	} else {
+		log.Println("WARNING: No IP subnet filtering - all IPs allowed")
+	}
+
 	// Create handler with smart caching configuration
 	handler := cache.NewHandler(
 		database,
 		s3Client,
+		validator,
 		cfg.PresignedURLExpiry,
+		cfg.DownloadTimeout,
 		cfg.CacheThreshold,
 		cfg.CacheWindow,
 	)
 
 	log.Printf("Smart caching enabled: %d requests in %v triggers caching", cfg.CacheThreshold, cfg.CacheWindow)
+	log.Printf("Download timeout: %v", cfg.DownloadTimeout)
 	log.Printf("Cleanup: Files unused for %d days will be deleted", cfg.CacheRetentionDays)
 
 	// Start cleanup goroutine
@@ -115,11 +131,14 @@ func main() {
 	mux.HandleFunc("/health", healthCheckHandler)
 	mux.HandleFunc("/", rootHandler)
 
-	// Create HTTP server
+	// Create HTTP server with timeouts
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	server := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: cfg.DownloadTimeout + (1 * time.Minute), // Download timeout + buffer
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Handle graceful shutdown

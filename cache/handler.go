@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"download-proxy/db"
+	"download-proxy/security"
 )
 
 // Handler handles proxy requests
@@ -16,17 +17,19 @@ type Handler struct {
 	db             *db.DB
 	s3             *S3Client
 	downloader     *Downloader
+	validator      *security.Validator
 	urlExpiry      time.Duration
 	cacheThreshold int
 	cacheWindow    time.Duration
 }
 
 // NewHandler creates a new proxy handler
-func NewHandler(database *db.DB, s3Client *S3Client, urlExpiry time.Duration, cacheThreshold int, cacheWindow time.Duration) *Handler {
+func NewHandler(database *db.DB, s3Client *S3Client, validator *security.Validator, urlExpiry time.Duration, downloadTimeout time.Duration, cacheThreshold int, cacheWindow time.Duration) *Handler {
 	return &Handler{
 		db:             database,
 		s3:             s3Client,
-		downloader:     NewDownloader(),
+		downloader:     NewDownloader(downloadTimeout),
+		validator:      validator,
 		urlExpiry:      urlExpiry,
 		cacheThreshold: cacheThreshold,
 		cacheWindow:    cacheWindow,
@@ -43,10 +46,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate client IP
+	clientIP := getClientIP(r)
+	if err := h.validator.ValidateClientIP(clientIP); err != nil {
+		log.Printf("IP validation failed for %s: %v", clientIP, err)
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
 	// Get URL parameter
 	targetURL := r.URL.Query().Get("url")
 	if targetURL == "" {
 		http.Error(w, "Missing 'url' parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Validate target URL for security (SSRF protection)
+	if err := h.validator.ValidateTargetURL(targetURL); err != nil {
+		log.Printf("URL validation failed for %s: %v", targetURL, err)
+		http.Error(w, "URL not allowed", http.StatusForbidden)
 		return
 	}
 
@@ -295,16 +313,10 @@ func (h *Handler) downloadAndCache(w http.ResponseWriter, r *http.Request, file 
 func (h *Handler) logRequest(fileID int64, r *http.Request, status int, bytesServed int64, startTime time.Time) {
 	duration := time.Since(startTime).Milliseconds()
 
-	// Get client IP (consider X-Forwarded-For for proxies)
-	clientIP := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		clientIP = strings.Split(forwarded, ",")[0]
-	}
-
 	req := &db.Request{
 		FileID:      fileID,
 		UserAgent:   r.UserAgent(),
-		IPAddress:   clientIP,
+		IPAddress:   getClientIP(r),
 		HTTPStatus:  status,
 		BytesServed: bytesServed,
 		DurationMs:  duration,
@@ -313,6 +325,23 @@ func (h *Handler) logRequest(fileID int64, r *http.Request, status int, bytesSer
 	if err := h.db.CreateRequest(req); err != nil {
 		log.Printf("Failed to log request: %v", err)
 	}
+}
+
+// getClientIP extracts the client IP from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxies/load balancers)
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		// Take the first IP in the chain
+		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
+	}
+
+	// Check X-Real-IP header
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		return strings.TrimSpace(realIP)
+	}
+
+	// Fall back to RemoteAddr
+	return r.RemoteAddr
 }
 
 // countingWriter counts bytes written

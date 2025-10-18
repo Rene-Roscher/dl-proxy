@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -39,6 +40,10 @@ type Config struct {
 	CacheWindow        time.Duration // Time window for threshold (e.g. 1 hour)
 	CacheRetentionDays int           // Days to keep unused cached files (e.g. 30)
 
+	// Security settings
+	AllowedIPNets      []string      // Allowed IP subnets (CIDR notation, comma-separated)
+	DownloadTimeout    time.Duration // Max download time in minutes (default: 30)
+
 	// Logging
 	LogLevel string
 }
@@ -66,6 +71,7 @@ func Load() (*Config, error) {
 		S3Endpoint:         getEnv("S3_ENDPOINT", ""),
 		CacheThreshold:     getEnvAsInt("CACHE_THRESHOLD", 10),
 		CacheRetentionDays: getEnvAsInt("CACHE_RETENTION_DAYS", 30),
+		AllowedIPNets:      getEnvAsSlice("ALLOWED_IP_NETS", ""),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 	}
 
@@ -84,6 +90,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid CACHE_WINDOW: %w", err)
 	}
 	cfg.CacheWindow = cacheWindow
+
+	// Parse download timeout
+	downloadTimeoutStr := getEnv("DOWNLOAD_TIMEOUT", "30m")
+	downloadTimeout, err := time.ParseDuration(downloadTimeoutStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DOWNLOAD_TIMEOUT: %w", err)
+	}
+	cfg.DownloadTimeout = downloadTimeout
 
 	// Validate required fields
 	if err := cfg.Validate(); err != nil {
@@ -188,4 +202,25 @@ func getEnvAsInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return value
+}
+
+// getEnvAsSlice retrieves an environment variable as a comma-separated slice
+func getEnvAsSlice(key, defaultValue string) []string {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		valueStr = defaultValue
+	}
+	if valueStr == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(valueStr, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

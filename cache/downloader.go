@@ -3,7 +3,9 @@ package cache
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"time"
 )
 
 // Downloader handles downloading files from remote URLs
@@ -12,9 +14,21 @@ type Downloader struct {
 }
 
 // NewDownloader creates a new downloader with a configured HTTP client
-func NewDownloader() *Downloader {
+func NewDownloader(timeout time.Duration) *Downloader {
 	return &Downloader{
 		client: &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   10,
+			},
 			// Follow up to 10 redirects
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
