@@ -7,11 +7,11 @@ import (
 // TestShouldCacheDecision tests the business logic for caching decisions
 func TestShouldCacheDecision(t *testing.T) {
 	tests := []struct {
-		name           string
-		requestCount   int
-		threshold      int
-		shouldCache    bool
-		description    string
+		name         string
+		requestCount int
+		threshold    int
+		shouldCache  bool
+		description  string
 	}{
 		{
 			name:         "below threshold",
@@ -72,23 +72,23 @@ func TestCacheKeyUniqueness(t *testing.T) {
 		sameName string
 	}{
 		{
-			url1: "https://example.com/file.zip",
-			url2: "https://example.com/file.zip",
+			url1:     "https://example.com/file.zip",
+			url2:     "https://example.com/file.zip",
 			sameName: "identical URLs",
 		},
 		{
-			url1: "https://EXAMPLE.com/file.zip",
-			url2: "https://example.com/file.zip",
+			url1:     "https://EXAMPLE.com/file.zip",
+			url2:     "https://example.com/file.zip",
 			sameName: "case insensitive host",
 		},
 		{
-			url1: "https://example.com:443/file.zip",
-			url2: "https://example.com/file.zip",
+			url1:     "https://example.com:443/file.zip",
+			url2:     "https://example.com/file.zip",
 			sameName: "default port removal",
 		},
 		{
-			url1: "https://example.com/file.zip?a=1&b=2",
-			url2: "https://example.com/file.zip?b=2&a=1",
+			url1:     "https://example.com/file.zip?a=1&b=2",
+			url2:     "https://example.com/file.zip?b=2&a=1",
 			sameName: "query param order",
 		},
 	}
@@ -260,10 +260,10 @@ func TestCacheKeyLength(t *testing.T) {
 // TestRetentionLogic tests the business logic for cache retention
 func TestRetentionLogic(t *testing.T) {
 	tests := []struct {
-		name            string
-		daysUnused      int
-		retentionDays   int
-		shouldDelete    bool
+		name          string
+		daysUnused    int
+		retentionDays int
+		shouldDelete  bool
 	}{
 		{
 			name:          "recently used",
